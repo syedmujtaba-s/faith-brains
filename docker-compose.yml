@@ -1,0 +1,20 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: faithbrains-db
+    environment:
+      POSTGRES_USER: faithbrains
+      POSTGRES_PASSWORD: faithbrains
+      POSTGRES_DB: faithbrains
+    ports:
+      - "5433:5432"
+    volumes:
+      - faithbrains_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U faithbrains -d faithbrains"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  faithbrains_pgdata:

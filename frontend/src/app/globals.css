@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------
+   FaithBrains — "Blue Quran" design system
+   Indigo parchment chrome + gold illumination + warm paper reading panes,
+   after the Blue Quran of Kairouan (indigo vellum, gold kufic).
+------------------------------------------------------------------- */
+
+@theme inline {
+  --color-ink: #0d1322; /* app ground — indigo vellum */
+  --color-lapis: #16203c; /* panels */
+  --color-raise: #1d2a4d; /* raised / hover panels */
+  --color-line: #2b3a63; /* hairlines on dark */
+  --color-gold: #c6a548; /* illumination gold */
+  --color-goldsoft: #e8d194; /* bright gold for small text on dark */
+  --color-paper: #f3ecdc; /* reading surface */
+  --color-paperline: #dccfae; /* hairlines on paper */
+  --color-paperink: #262117; /* text on paper */
+  --color-paperfaint: #756c55; /* muted text on paper */
+  --color-mist: #9fadcd; /* muted text on dark */
+  --color-snow: #e9edf7; /* primary text on dark */
+
+  --font-display: var(--font-marcellus);
+  --font-body: var(--font-alegreya-sans);
+  --font-serif: var(--font-alegreya);
+  --font-arabic: var(--font-amiri);
+}
+
+@layer base {
+  body {
+    background-color: var(--color-ink);
+    color: var(--color-snow);
+    font-family: var(--font-body);
+    /* faint illumination glow at the top of the page, like gilded edges */
+    background-image: radial-gradient(
+      ellipse 90% 24rem at 50% -8rem,
+      rgba(198, 165, 72, 0.13),
+      transparent 70%
+    );
+    background-repeat: no-repeat;
+  }
+
+  ::selection {
+    background: rgba(198, 165, 72, 0.35);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-gold);
+    outline-offset: 2px;
+  }
+
+  [lang="ar"] {
+    font-family: var(--font-arabic);
+    direction: rtl;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* mushaf-style round ayah medallion */
+  .medallion {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2.1rem;
+    height: 2.1rem;
+    padding: 0 0.3rem;
+    border-radius: 9999px;
+    border: 1px solid var(--color-gold);
+    box-shadow: inset 0 0 0 2.5px var(--color-paper), inset 0 0 0 3.5px rgba(198, 165, 72, 0.5);
+    color: #8a6d1f;
+    font-family: var(--font-arabic);
+    font-size: 0.95rem;
+    line-height: 1;
+  }
+
+  .medallion-dark {
+    box-shadow: inset 0 0 0 2.5px var(--color-lapis), inset 0 0 0 3.5px rgba(198, 165, 72, 0.5);
+    color: var(--color-goldsoft);
+  }
+}
