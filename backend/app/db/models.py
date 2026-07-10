@@ -1,7 +1,7 @@
 from datetime import datetime
 
 import sqlalchemy as sa
-from pgvector.sqlalchemy import Vector
+from pgvector.sqlalchemy import HALFVEC
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -89,7 +89,7 @@ class QuranTranslation(Base):
             "embedding",
             postgresql_using="hnsw",
             postgresql_with={"m": 16, "ef_construction": 64},
-            postgresql_ops={"embedding": "vector_cosine_ops"},
+            postgresql_ops={"embedding": "halfvec_cosine_ops"},
         ),
     )
 
@@ -103,7 +103,7 @@ class QuranTranslation(Base):
         TSVECTOR,
         sa.Computed("to_tsvector('english', coalesce(text, ''))", persisted=True),
     )
-    embedding = mapped_column(Vector(EMBEDDING_DIM), nullable=True)
+    embedding = mapped_column(HALFVEC(EMBEDDING_DIM), nullable=True)
     embedding_model: Mapped[str | None] = mapped_column(sa.Text)
 
     verse: Mapped[QuranVerse] = relationship(back_populates="translations")
@@ -160,7 +160,7 @@ class HadithRecord(Base):
             "embedding",
             postgresql_using="hnsw",
             postgresql_with={"m": 16, "ef_construction": 64},
-            postgresql_ops={"embedding": "vector_cosine_ops"},
+            postgresql_ops={"embedding": "halfvec_cosine_ops"},
         ),
     )
 
@@ -184,7 +184,7 @@ class HadithRecord(Base):
         TSVECTOR,
         sa.Computed("to_tsvector('english', coalesce(text_english, ''))", persisted=True),
     )
-    embedding = mapped_column(Vector(EMBEDDING_DIM), nullable=True)
+    embedding = mapped_column(HALFVEC(EMBEDDING_DIM), nullable=True)
     embedding_model: Mapped[str | None] = mapped_column(sa.Text)
 
     collection: Mapped[HadithCollection] = relationship(back_populates="records")

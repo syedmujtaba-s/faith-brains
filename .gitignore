@@ -10,6 +10,9 @@ __pycache__/
 .env
 .env.*
 !.env.example
+aws credentials.txt
+*credentials*.txt
+*.pem
 
 # Data downloads (checksums are committed, raw files are not)
 backend/data/*
