@@ -6,9 +6,10 @@ const KEY = "faithbrains.session.v1";
 function makeId(): string {
   // crypto.randomUUID exists only in secure contexts (https/localhost);
   // the beta serves over plain http, so fall back to getRandomValues.
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  const c: Crypto | undefined = typeof crypto !== "undefined" ? crypto : undefined;
+  if (c?.randomUUID) return c.randomUUID();
   const bytes = new Uint8Array(16);
-  if (typeof crypto !== "undefined" && crypto.getRandomValues) crypto.getRandomValues(bytes);
+  if (c?.getRandomValues) c.getRandomValues(bytes);
   else for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
