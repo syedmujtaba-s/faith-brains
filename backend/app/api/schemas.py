@@ -158,6 +158,55 @@ class AskLogListOut(BaseModel):
     items: list[AskLogOut]
 
 
+class TafsirOut(BaseModel):
+    source_key: str
+    source_name: str
+    language: str
+    text: str
+
+
+class SavedItemIn(BaseModel):
+    kind: Literal["quran", "hadith"]
+    reference: str = Field(min_length=1, max_length=100)
+
+
+class SavedItemOut(BaseModel):
+    kind: str
+    reference: str
+
+
+class PathSummaryOut(BaseModel):
+    key: str
+    title: str
+    description: str
+    step_count: int
+    completed_count: int
+
+
+class PathStepOut(BaseModel):
+    key: str
+    title: str
+    kind: str
+    reference: str
+    arabic: str | None
+    text: str | None
+    grading: str | None
+    completed: bool
+
+
+class PathDetailOut(BaseModel):
+    key: str
+    title: str
+    description: str
+    steps: list[PathStepOut]
+
+
+class PathProgressOut(BaseModel):
+    path_key: str
+    completed: list[str]
+    step_count: int
+
+
 class AdminStatsOut(BaseModel):
     verses: int
     hadiths: int

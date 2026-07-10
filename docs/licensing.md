@@ -59,3 +59,11 @@ the license obliges us to do. **Treat the obligations as release blockers, not n
 > Quran text: Tanzil Project (tanzil.net). Translations: Saheeh International and Rowwad
 > Translation Center via QuranEnc.com (edition versions shown per translation). Hadith data:
 > open hadith-api dataset. FaithBrains is an educational tool and not a source of religious rulings.
+
+## Tafsir (added 2026-07-11)
+
+- **Tafsir Ibn Kathir (abridged, English)** via the spa5k/tafsir_api dataset (CDN).
+  Classical Arabic tafsir is public domain; the **English translation rights are
+  unresolved** — same posture as the hadith English translations: acceptable for
+  build/private beta, **must be cleared or removed before public launch**.
+  Attribution shown with the text (source name stored per row).

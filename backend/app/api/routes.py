@@ -21,6 +21,7 @@ from app.db.models import (
     QuranTranslation,
     QuranVerse,
     Surah,
+    Tafsir,
 )
 from app.retrieval.service import DEFAULT_TRANSLATION_KEY, SearchService
 
@@ -120,6 +121,35 @@ async def verse_detail(
     if verse is None:
         raise HTTPException(404, "verse not found")
     return _verse_out(verse)
+
+
+@router.get("/quran/{surah_number}/{ayah_number}/tafsir", response_model=list[schemas.TafsirOut])
+async def verse_tafsir(
+    surah_number: int,
+    ayah_number: int,
+    session: AsyncSession = Depends(get_session),
+):
+    rows = (
+        (
+            await session.execute(
+                select(Tafsir)
+                .join(QuranVerse)
+                .where(
+                    QuranVerse.surah_number == surah_number,
+                    QuranVerse.ayah_number == ayah_number,
+                )
+                .order_by(Tafsir.source_key)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        schemas.TafsirOut(
+            source_key=t.source_key, source_name=t.source_name, language=t.language, text=t.text
+        )
+        for t in rows
+    ]
 
 
 @router.get("/hadith/collections", response_model=list[schemas.HadithCollectionOut])

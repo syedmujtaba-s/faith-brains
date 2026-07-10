@@ -188,3 +188,75 @@ class HadithRecord(Base):
     embedding_model: Mapped[str | None] = mapped_column(sa.Text)
 
     collection: Mapped[HadithCollection] = relationship(back_populates="records")
+
+
+class Tafsir(Base):
+    """Per-verse tafsir text. English tafsir translations carry the same
+    public-launch licensing caveat as hadith translations (docs/licensing.md)."""
+
+    __tablename__ = "tafsirs"
+    __table_args__ = (
+        sa.UniqueConstraint("verse_id", "source_key", name="uq_tafsir_verse_source"),
+        sa.Index("ix_tafsir_verse", "verse_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    verse_id: Mapped[int] = mapped_column(sa.ForeignKey("quran_verses.id"))
+    source_key: Mapped[str] = mapped_column(sa.Text)  # e.g. en-tafsir-ibn-kathir
+    source_name: Mapped[str] = mapped_column(sa.Text)
+    language: Mapped[str] = mapped_column(sa.Text)
+    text: Mapped[str] = mapped_column(sa.Text)
+
+    verse: Mapped[QuranVerse] = relationship()
+
+
+class Learner(Base):
+    """Anonymous session identity (X-Session-Id header, UUID minted by the client).
+
+    No account, no email, no belief profiling — just enough identity to keep
+    saved items and learning-path progress across devices/refreshes. A future
+    auth layer can attach to this table without schema upheaval.
+    """
+
+    __tablename__ = "learners"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[str] = mapped_column(sa.Text, unique=True)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=sa.text("now()")
+    )
+    last_seen_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+
+
+class SavedItem(Base):
+    __tablename__ = "saved_items"
+    __table_args__ = (
+        sa.UniqueConstraint("learner_id", "kind", "reference", name="uq_saved_learner_ref"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    learner_id: Mapped[int] = mapped_column(sa.ForeignKey("learners.id"))
+    kind: Mapped[str] = mapped_column(sa.Text)  # quran | hadith
+    reference: Mapped[str] = mapped_column(sa.Text)  # "2:255" | "bukhari 6018"
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=sa.text("now()")
+    )
+
+    learner: Mapped[Learner] = relationship()
+
+
+class PathProgress(Base):
+    __tablename__ = "path_progress"
+    __table_args__ = (
+        sa.UniqueConstraint("learner_id", "path_key", "step_key", name="uq_progress_step"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    learner_id: Mapped[int] = mapped_column(sa.ForeignKey("learners.id"))
+    path_key: Mapped[str] = mapped_column(sa.Text)
+    step_key: Mapped[str] = mapped_column(sa.Text)
+    completed_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=sa.text("now()")
+    )
+
+    learner: Mapped[Learner] = relationship()

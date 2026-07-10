@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.learner_routes import router as learner_router
 from app.api.routes import router
 from app.config import get_settings
 
@@ -31,3 +32,4 @@ async def security_headers(request: Request, call_next):
 
 
 app.include_router(router, prefix="/api/v1")
+app.include_router(learner_router, prefix="/api/v1")

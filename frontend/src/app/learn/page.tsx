@@ -1,4 +1,5 @@
 import Link from "next/link";
+import PathList from "@/components/PathList";
 
 export const metadata = { title: "Learn — FaithBrains" };
 
@@ -20,9 +21,15 @@ const TOPICS: { title: string; arabic: string; query: string }[] = [
 export default function LearnPage() {
   return (
     <div className="mx-auto max-w-3xl">
-      <h1 className="font-display mb-2 text-3xl text-snow">Learn by theme</h1>
+      <h1 className="font-display mb-2 text-3xl text-snow">Learning paths</h1>
       <p className="mb-6 text-sm text-mist">
-        Start from a theme and read what the Quran and hadith actually say about it.
+        Guided journeys through the sources, one step at a time. Your progress is remembered.
+      </p>
+      <PathList />
+
+      <h2 className="font-display mt-12 mb-2 text-2xl text-snow">Learn by theme</h2>
+      <p className="mb-6 text-sm text-mist">
+        Or start from a theme and read what the Quran and hadith actually say about it.
       </p>
 
       <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">

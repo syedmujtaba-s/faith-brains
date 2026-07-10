@@ -1,5 +1,6 @@
 import Link from "next/link";
 import SaveButton from "@/components/SaveButton";
+import TafsirToggle from "@/components/TafsirToggle";
 import { arabicNumber } from "@/lib/api";
 
 // The signature element: an illuminated verse panel — paper surface, gold hairline,
@@ -54,6 +55,7 @@ export default function VerseCard({
             }}
           />
         </div>
+        <TafsirToggle surah={surah} ayah={ayah} />
       </div>
     </article>
   );
