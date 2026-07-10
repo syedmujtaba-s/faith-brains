@@ -1,5 +1,7 @@
 import json
+import logging
 import time
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -7,23 +9,29 @@ from sqlalchemy import Integer, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.ai.answer import AnswerService
+from app.ai.answer import HISTORY_TURNS, AnswerService
 from app.ai.base import AIUnavailable
 from app.api import schemas
+from app.api.learner_routes import get_learner_optional
 from app.api.ratelimit import limit_ask, limit_search
 from app.config import get_settings
 from app.db.engine import get_session
 from app.db.models import (
     AskLog,
+    Conversation,
     Edition,
     HadithCollection,
     HadithRecord,
+    Learner,
+    Message,
     QuranTranslation,
     QuranVerse,
     Surah,
     Tafsir,
 )
 from app.retrieval.service import DEFAULT_TRANSLATION_KEY, SearchService
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 search_service = SearchService()
@@ -245,10 +253,77 @@ async def hadith_detail(
     return _hadith_out(record)
 
 
+async def _conversation_history(
+    session: AsyncSession, learner: Learner | None, body: schemas.AskRequest
+) -> tuple[Conversation | None, list[dict]]:
+    """Resolve the thread being continued. 404s when the id is unknown or belongs
+    to another session; asking without a session header just means no persistence."""
+    if body.conversation_id is None:
+        return None, []
+    if learner is None:
+        raise HTTPException(404, "conversation not found")
+    conversation = (
+        await session.execute(
+            select(Conversation).where(
+                Conversation.id == body.conversation_id,
+                Conversation.learner_id == learner.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if conversation is None:
+        raise HTTPException(404, "conversation not found")
+    rows = (
+        (
+            await session.execute(
+                select(Message)
+                .where(Message.conversation_id == conversation.id)
+                .order_by(Message.id.desc())
+                .limit(HISTORY_TURNS)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    history = [{"role": m.role, "content": m.content} for m in reversed(rows)]
+    return conversation, history
+
+
+async def _persist_turn(
+    session: AsyncSession,
+    learner: Learner | None,
+    conversation: Conversation | None,
+    question: str,
+    outcome: dict,
+) -> int | None:
+    """Store the user/assistant turn pair (caller commits alongside the AskLog).
+    Crisis turns are answered but never kept in retrievable chat history."""
+    if learner is None:
+        return None
+    if outcome["category"] == "sensitive_crisis":
+        return conversation.id if conversation else None
+    if conversation is None:
+        conversation = Conversation(learner_id=learner.id, title=question.strip()[:80])
+        session.add(conversation)
+        await session.flush()
+    session.add(Message(conversation_id=conversation.id, role="user", content=question))
+    session.add(
+        Message(
+            conversation_id=conversation.id,
+            role="assistant",
+            content=outcome["answer"],
+            category=outcome["category"],
+            sources=outcome["sources"],
+        )
+    )
+    conversation.updated_at = datetime.now(UTC)
+    return conversation.id
+
+
 @router.post("/ask", response_model=schemas.AskResponse, dependencies=[Depends(limit_ask)])
 async def ask(
     body: schemas.AskRequest,
     session: AsyncSession = Depends(get_session),
+    learner: Learner | None = Depends(get_learner_optional),
 ):
     if not answer_service.chat.available:
         raise HTTPException(
@@ -259,8 +334,11 @@ async def ask(
     started = time.monotonic()
     provider = type(answer_service.chat).__name__
     model = answer_service.chat.answer_model
+    conversation, history = await _conversation_history(session, learner, body)
     try:
-        outcome = await answer_service.ask(session, body.question, scope=body.scope)
+        outcome = await answer_service.ask(
+            session, body.question, scope=body.scope, persona=body.persona, history=history
+        )
     except AIUnavailable as exc:
         session.add(
             AskLog(
@@ -274,6 +352,7 @@ async def ask(
         )
         await session.commit()
         raise HTTPException(503, f"AI answer engine unavailable: {exc}") from exc
+    conversation_id = await _persist_turn(session, learner, conversation, body.question, outcome)
     session.add(
         AskLog(
             question=body.question,
@@ -289,16 +368,20 @@ async def ask(
         )
     )
     await session.commit()
-    return schemas.AskResponse(question=body.question, **outcome)
+    return schemas.AskResponse(
+        question=body.question, conversation_id=conversation_id, **outcome
+    )
 
 
 @router.post("/ask/stream", dependencies=[Depends(limit_ask)])
 async def ask_stream(
     body: schemas.AskRequest,
     session: AsyncSession = Depends(get_session),
+    learner: Learner | None = Depends(get_learner_optional),
 ):
     """SSE variant of /ask: events arrive as `data: {json}` lines —
-    meta (category) -> sources -> delta* -> done (full payload), or error."""
+    meta (category) -> sources -> delta* -> done (full payload), or error.
+    The done event carries conversation_id when the turn was persisted."""
     if not answer_service.chat.available:
         raise HTTPException(
             503,
@@ -308,6 +391,7 @@ async def ask_stream(
     started = time.monotonic()
     provider = type(answer_service.chat).__name__
     model = answer_service.chat.answer_model
+    conversation, history = await _conversation_history(session, learner, body)
 
     def sse(event: dict) -> str:
         return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
@@ -316,10 +400,11 @@ async def ask_stream(
         outcome: dict | None = None
         try:
             async for event in answer_service.ask_stream(
-                session, body.question, scope=body.scope
+                session, body.question, scope=body.scope, persona=body.persona, history=history
             ):
                 if event.get("event") == "done":
-                    outcome = event
+                    outcome = event  # held back: persisted first, then emitted below
+                    continue
                 yield sse(event)
         except AIUnavailable as exc:
             yield sse({"event": "error", "detail": f"AI answer engine unavailable: {exc}"})
@@ -336,21 +421,29 @@ async def ask_stream(
             await session.commit()
             return
         if outcome is not None:
-            session.add(
-                AskLog(
-                    question=body.question,
-                    category=outcome["category"],
-                    answer=outcome["answer"],
-                    sources=[
-                        {"type": s.get("type"), "reference": s.get("reference")}
-                        for s in outcome["sources"]
-                    ],
-                    provider=provider,
-                    model=model,
-                    latency_ms=int((time.monotonic() - started) * 1000),
+            conversation_id: int | None = None
+            try:
+                conversation_id = await _persist_turn(
+                    session, learner, conversation, body.question, outcome
                 )
-            )
-            await session.commit()
+                session.add(
+                    AskLog(
+                        question=body.question,
+                        category=outcome["category"],
+                        answer=outcome["answer"],
+                        sources=[
+                            {"type": s.get("type"), "reference": s.get("reference")}
+                            for s in outcome["sources"]
+                        ],
+                        provider=provider,
+                        model=model,
+                        latency_ms=int((time.monotonic() - started) * 1000),
+                    )
+                )
+                await session.commit()
+            except Exception:  # noqa: BLE001 — the answer still reaches the client
+                log.exception("failed to persist ask turn")
+            yield sse({**outcome, "conversation_id": conversation_id})
 
     return StreamingResponse(
         gen(),

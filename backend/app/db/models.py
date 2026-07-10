@@ -226,6 +226,48 @@ class Learner(Base):
         sa.DateTime(timezone=True), server_default=sa.text("now()")
     )
     last_seen_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    # Self-chosen learning role (app.content.personas key) — not belief profiling
+    persona: Mapped[str | None] = mapped_column(sa.Text)
+
+
+class Conversation(Base):
+    """A multi-turn ask thread owned by an anonymous learner."""
+
+    __tablename__ = "conversations"
+    __table_args__ = (sa.Index("ix_conversations_learner", "learner_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    learner_id: Mapped[int] = mapped_column(sa.ForeignKey("learners.id"))
+    title: Mapped[str] = mapped_column(sa.Text)  # first question, truncated
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=sa.text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=sa.text("now()")
+    )
+
+    learner: Mapped[Learner] = relationship()
+
+
+class Message(Base):
+    """One turn in a conversation; assistant turns keep their cited sources."""
+
+    __tablename__ = "messages"
+    __table_args__ = (sa.Index("ix_messages_conversation", "conversation_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("conversations.id", ondelete="CASCADE")
+    )
+    role: Mapped[str] = mapped_column(sa.Text)  # user | assistant
+    content: Mapped[str] = mapped_column(sa.Text)
+    category: Mapped[str | None] = mapped_column(sa.Text)  # assistant turns only
+    sources: Mapped[list] = mapped_column(JSONB, server_default=sa.text("'[]'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=sa.text("now()")
+    )
+
+    conversation: Mapped[Conversation] = relationship()
 
 
 class SavedItem(Base):

@@ -8,18 +8,21 @@ import re
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import schemas
 from app.content.learning_paths import PATHS, PATHS_BY_KEY
+from app.content.personas import PERSONAS
 from app.db.engine import get_session
 from app.db.models import (
+    Conversation,
     Edition,
     HadithCollection,
     HadithRecord,
     Learner,
+    Message,
     PathProgress,
     QuranTranslation,
     QuranVerse,
@@ -63,6 +66,36 @@ async def get_learner_optional(
     if not x_session_id or not _SESSION_RE.fullmatch(x_session_id):
         return None
     return await get_learner(x_session_id, session)
+
+
+# -- personas --------------------------------------------------------------------
+
+
+@router.get("/personas", response_model=list[schemas.PersonaOut])
+async def list_personas():
+    """Public persona catalogue (labels, suggested questions, recommended paths).
+    prompt_hint stays server-side."""
+    return [
+        schemas.PersonaOut(
+            key=p["key"],
+            label=p["label"],
+            tagline=p["tagline"],
+            suggested_questions=p["suggested_questions"],
+            recommended_paths=p["recommended_paths"],
+        )
+        for p in PERSONAS
+    ]
+
+
+@router.put("/learner/persona", response_model=schemas.LearnerOut)
+async def set_persona(
+    body: schemas.LearnerPersonaIn,
+    learner: Learner = Depends(get_learner),
+    session: AsyncSession = Depends(get_session),
+):
+    learner.persona = body.persona
+    await session.commit()
+    return schemas.LearnerOut(session_id=learner.session_id, persona=learner.persona)
 
 
 # -- saved items ---------------------------------------------------------------
@@ -114,6 +147,100 @@ async def unsave_item(
     )
     await session.commit()
     return await list_saved(learner, session)
+
+
+# -- conversations ----------------------------------------------------------------
+
+
+async def _owned_conversation(
+    session: AsyncSession, learner: Learner, conversation_id: int
+) -> Conversation:
+    conversation = (
+        await session.execute(
+            select(Conversation).where(
+                Conversation.id == conversation_id,
+                Conversation.learner_id == learner.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if conversation is None:
+        raise HTTPException(404, "conversation not found")
+    return conversation
+
+
+@router.get("/conversations", response_model=list[schemas.ConversationSummaryOut])
+async def list_conversations(
+    learner: Learner = Depends(get_learner),
+    session: AsyncSession = Depends(get_session),
+):
+    msg_count = (
+        select(func.count())
+        .where(Message.conversation_id == Conversation.id)
+        .scalar_subquery()
+    )
+    rows = (
+        await session.execute(
+            select(Conversation, msg_count)
+            .where(Conversation.learner_id == learner.id)
+            .order_by(Conversation.updated_at.desc())
+            .limit(30)
+        )
+    ).all()
+    return [
+        schemas.ConversationSummaryOut(
+            id=c.id,
+            title=c.title,
+            updated_at=c.updated_at.isoformat(),
+            message_count=n,
+        )
+        for c, n in rows
+    ]
+
+
+@router.get("/conversations/{conversation_id}", response_model=schemas.ConversationDetailOut)
+async def conversation_detail(
+    conversation_id: int,
+    learner: Learner = Depends(get_learner),
+    session: AsyncSession = Depends(get_session),
+):
+    conversation = await _owned_conversation(session, learner, conversation_id)
+    messages = (
+        (
+            await session.execute(
+                select(Message)
+                .where(Message.conversation_id == conversation.id)
+                .order_by(Message.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return schemas.ConversationDetailOut(
+        id=conversation.id,
+        title=conversation.title,
+        messages=[
+            schemas.MessageOut(
+                role=m.role,
+                content=m.content,
+                category=m.category,
+                sources=m.sources or [],
+                created_at=m.created_at.isoformat(),
+            )
+            for m in messages
+        ],
+    )
+
+
+@router.delete("/conversations/{conversation_id}", status_code=204)
+async def delete_conversation(
+    conversation_id: int,
+    learner: Learner = Depends(get_learner),
+    session: AsyncSession = Depends(get_session),
+):
+    conversation = await _owned_conversation(session, learner, conversation_id)
+    await session.execute(delete(Message).where(Message.conversation_id == conversation.id))
+    await session.delete(conversation)
+    await session.commit()
 
 
 # -- learning paths --------------------------------------------------------------

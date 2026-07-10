@@ -127,9 +127,14 @@ class SearchResponse(BaseModel):
     results: list[SearchResultOut]
 
 
+PersonaKey = Literal["learner", "student", "educator", "new_muslim"]
+
+
 class AskRequest(BaseModel):
     question: str = Field(min_length=3, max_length=2000)
     scope: Literal["all", "quran", "hadith"] = "all"
+    persona: PersonaKey | None = None
+    conversation_id: int | None = None  # continue an existing thread
 
 
 class AskResponse(BaseModel):
@@ -138,6 +143,7 @@ class AskResponse(BaseModel):
     answer: str
     sources: list[SearchResultOut]
     disclaimer: str
+    conversation_id: int | None = None
 
 
 class AskLogOut(BaseModel):
@@ -205,6 +211,46 @@ class PathProgressOut(BaseModel):
     path_key: str
     completed: list[str]
     step_count: int
+
+
+class PersonaOut(BaseModel):
+    """Public persona descriptor — prompt_hint is deliberately server-side only."""
+
+    key: str
+    label: str
+    tagline: str
+    suggested_questions: list[str]
+    recommended_paths: list[str]
+
+
+class LearnerPersonaIn(BaseModel):
+    persona: PersonaKey | None  # None clears the selection
+
+
+class LearnerOut(BaseModel):
+    session_id: str
+    persona: str | None
+
+
+class ConversationSummaryOut(BaseModel):
+    id: int
+    title: str
+    updated_at: str
+    message_count: int
+
+
+class MessageOut(BaseModel):
+    role: str
+    content: str
+    category: str | None
+    sources: list[SearchResultOut]
+    created_at: str
+
+
+class ConversationDetailOut(BaseModel):
+    id: int
+    title: str
+    messages: list[MessageOut]
 
 
 class AdminStatsOut(BaseModel):

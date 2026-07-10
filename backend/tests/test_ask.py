@@ -162,10 +162,58 @@ async def test_ask_validates_question_length(client, fake_ask):
     assert resp.status_code == 422
 
 
-async def _sse_events(client, question: str) -> list[dict]:
+async def test_ask_with_persona_appends_style_hint(client, fake_ask):
+    fake = fake_ask(category="educational")
+    resp = await client.post(
+        "/api/v1/ask",
+        json={
+            "question": "What does the Quran say about drowsiness and sleep?",
+            "persona": "new_muslim",
+        },
+    )
+    assert resp.status_code == 200
+    system = fake.text_calls[0]["system"]
+    assert "someone new to Islam" in system
+    # Safety blocks must remain intact ahead of any audience tuning
+    assert "Answer ONLY from the numbered sources" in system
+    assert "never issue a fatwa" in system
+
+
+async def test_ask_without_persona_has_no_audience_block(client, fake_ask):
+    fake = fake_ask(category="educational")
+    resp = await client.post(
+        "/api/v1/ask", json={"question": "What does the Quran say about drowsiness and sleep?"}
+    )
+    assert resp.status_code == 200
+    assert "Audience adaptation" not in fake.text_calls[0]["system"]
+
+
+async def test_ask_rejects_unknown_persona(client, fake_ask):
+    fake_ask()
+    resp = await client.post(
+        "/api/v1/ask", json={"question": "What is patience in Islam?", "persona": "wizard"}
+    )
+    assert resp.status_code == 422
+
+
+async def test_fatwa_addendum_precedes_persona_hint(client, fake_ask):
+    fake = fake_ask(category="fatwa_seeking")
+    resp = await client.post(
+        "/api/v1/ask",
+        json={
+            "question": "Is it permissible for me to delay my prayer at work?",
+            "persona": "learner",
+        },
+    )
+    assert resp.status_code == 200
+    system = fake.text_calls[0]["system"]
+    assert system.index("MUST NOT provide one") < system.index("Audience adaptation")
+
+
+async def _sse_events(client, question: str, **extra) -> list[dict]:
     events = []
     async with client.stream(
-        "POST", "/api/v1/ask/stream", json={"question": question}
+        "POST", "/api/v1/ask/stream", json={"question": question, **extra}
     ) as resp:
         assert resp.status_code == 200
         assert resp.headers["content-type"].startswith("text/event-stream")
@@ -187,6 +235,17 @@ async def test_ask_stream_event_sequence_and_content(client, fake_ask):
     assert done["answer"] == "Grounded answer [1]."
     assert done["disclaimer"]
     assert any(s["reference"] == "2:255" for s in done["sources"])
+
+
+async def test_ask_stream_carries_persona_hint(client, fake_ask):
+    fake = fake_ask(category="educational")
+    events = await _sse_events(
+        client, "What does the Quran say about drowsiness and sleep?", persona="student"
+    )
+    assert events[-1]["event"] == "done"
+    system = fake.text_calls[0]["system"]
+    assert "student of knowledge" in system
+    assert "Answer ONLY from the numbered sources" in system
 
 
 async def test_ask_stream_crisis_is_deterministic(client, fake_ask):

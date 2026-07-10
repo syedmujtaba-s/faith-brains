@@ -92,9 +92,11 @@ export type AskResponse = {
   answer: string;
   sources: SearchResult[];
   disclaimer: string;
+  conversation_id?: number | null;
 };
 
 // One SSE event from POST /ask/stream: meta -> sources -> delta* -> done | error
+// The done event carries conversation_id when the turn was persisted.
 export type AskStreamEvent = {
   event: "meta" | "sources" | "delta" | "done" | "error";
   category?: AskResponse["category"];
@@ -103,6 +105,43 @@ export type AskStreamEvent = {
   answer?: string;
   disclaimer?: string;
   detail?: string;
+  conversation_id?: number | null;
+};
+
+export type Persona = {
+  key: string;
+  label: string;
+  tagline: string;
+  suggested_questions: string[];
+  recommended_paths: string[];
+};
+
+export type ConversationSummary = {
+  id: number;
+  title: string;
+  updated_at: string;
+  message_count: number;
+};
+
+// One rendered turn in the chat thread (assistant turns carry their citations)
+export type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+  category?: AskResponse["category"] | null;
+  sources?: SearchResult[];
+  disclaimer?: string;
+};
+
+export type ConversationDetail = {
+  id: number;
+  title: string;
+  messages: {
+    role: string;
+    content: string;
+    category: string | null;
+    sources: SearchResult[];
+    created_at: string;
+  }[];
 };
 
 async function get<T>(path: string): Promise<T> {
