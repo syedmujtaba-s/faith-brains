@@ -50,8 +50,20 @@ class VoyageEmbedder:
     def available(self) -> bool:
         return bool(self.api_key)
 
-    async def embed(self, texts: list[str], input_type: str) -> list[list[float]]:
-        """input_type: 'document' for corpus rows, 'query' for search queries."""
+    async def embed(
+        self,
+        texts: list[str],
+        input_type: str,
+        *,
+        attempts: int = _MAX_RETRIES,
+        max_wait: float = _MAX_WAIT,
+        throttle: bool = True,
+        timeout_s: float = 120.0,
+    ) -> list[list[float]]:
+        """input_type: 'document' for corpus rows, 'query' for search queries.
+
+        Defaults suit the bulk crawl (patient, throttled). Query-time callers pass
+        a small budget instead — see embed_query."""
         if not self.available:
             raise EmbeddingsUnavailable("VOYAGE_API_KEY is not set")
         payload = {
@@ -60,9 +72,9 @@ class VoyageEmbedder:
             "input_type": input_type,
             "output_dimension": self.dim,
         }
-        async with httpx.AsyncClient(timeout=120) as client:
-            for attempt in range(_MAX_RETRIES):
-                if self._min_interval:
+        async with httpx.AsyncClient(timeout=timeout_s) as client:
+            for attempt in range(attempts):
+                if throttle and self._min_interval:
                     since = asyncio.get_event_loop().time() - self._last_request
                     if since < self._min_interval:
                         await asyncio.sleep(self._min_interval - since)
@@ -74,8 +86,8 @@ class VoyageEmbedder:
                         headers={"Authorization": f"Bearer {self.api_key}"},
                     )
                 except httpx.HTTPError as exc:  # DNS blips, timeouts, resets — retryable
-                    if attempt < _MAX_RETRIES - 1:
-                        wait = min(2.0**attempt, _MAX_WAIT)
+                    if attempt < attempts - 1:
+                        wait = min(2.0**attempt, max_wait)
                         log.warning("Voyage network error (%s), retrying in %.0fs", exc, wait)
                         await asyncio.sleep(wait)
                         continue
@@ -83,11 +95,11 @@ class VoyageEmbedder:
                 if resp.status_code == 200:
                     data = resp.json()["data"]
                     return [row["embedding"] for row in data]
-                if resp.status_code == 429 and not self._min_interval:
+                if resp.status_code == 429 and throttle and not self._min_interval:
                     self._min_interval = _FREE_TIER_SPACING
                     log.warning("Voyage rate limit hit — throttling to one request/%.0fs", self._min_interval)
-                if resp.status_code in (429, 500, 502, 503, 529) and attempt < _MAX_RETRIES - 1:
-                    wait = min(float(resp.headers.get("retry-after") or 2**attempt), _MAX_WAIT)
+                if resp.status_code in (429, 500, 502, 503, 529) and attempt < attempts - 1:
+                    wait = min(float(resp.headers.get("retry-after") or 2**attempt), max_wait)
                     log.warning("Voyage %s, retrying in %.0fs", resp.status_code, wait)
                     await asyncio.sleep(wait)
                     continue
@@ -97,7 +109,13 @@ class VoyageEmbedder:
         raise EmbeddingsUnavailable("Voyage API: retries exhausted")
 
     async def embed_query(self, text: str) -> list[float]:
-        return (await self.embed([text], input_type="query"))[0]
+        # Live searches must never hang behind the crawl's shared 3 RPM budget:
+        # two quick tries, then EmbeddingsUnavailable — the caller degrades to
+        # lexical-only search instead of stalling the answer.
+        vectors = await self.embed(
+            [text], input_type="query", attempts=2, max_wait=2.0, throttle=False, timeout_s=8.0
+        )
+        return vectors[0]
 
 
 class GeminiEmbedder:
