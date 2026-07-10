@@ -37,7 +37,10 @@ services:
         condition: service_healthy
 
   web:
-    build: ../frontend
+    build:
+      context: ../frontend
+      args:
+        BACKEND_URL: http://api:8000
     restart: unless-stopped
     environment:
       BACKEND_URL: http://api:8000
